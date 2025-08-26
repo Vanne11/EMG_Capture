@@ -1,19 +1,19 @@
 # GUI Framework
-PySide6==6.6.1
+PySide6
 
 # Serial Communication
-pyserial==3.5
+pyserial
 
 # Data Processing
-numpy==1.24.3
-scipy==1.10.1
+numpy
+scipy
 
 # Real-time Plotting
-pyqtgraph==0.13.3
+pyqtgraph
 
 # WebSocket Server
-websockets==11.0.3
+websockets
 
 # Optional: Data Analysis
-pandas==2.0.3
-matplotlib==3.7.1
+pandas
+matplotlib
