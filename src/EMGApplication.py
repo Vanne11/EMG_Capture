@@ -1,6 +1,6 @@
 import sys
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal
 from SerialHandler import SerialHandler
 from SignalProcessor import SignalProcessor
 from DataLogger import DataLogger

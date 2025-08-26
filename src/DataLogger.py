@@ -1,10 +1,10 @@
 import csv
 import os
 from datetime import datetime
-from PyQt6.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal
 
 class DataLogger(QObject):
-    log_status = pyqtSignal(str)
+    log_status = Signal(str)
     
     def __init__(self, base_directory="data"):
         super().__init__()

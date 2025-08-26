@@ -1,13 +1,13 @@
 import asyncio
 import json
 import websockets
-from PyQt6.QtCore import QThread, pyqtSignal
+from PySide6.QtCore import QThread, Signal
 import threading
 from datetime import datetime
 
 class WebSocketServer(QThread):
-    server_status = pyqtSignal(bool, str)
-    client_connected = pyqtSignal(int)
+    server_status = Signal(bool, str)
+    client_connected = Signal(int)
     
     def __init__(self, host="localhost", port=8765):
         super().__init__()

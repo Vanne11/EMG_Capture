@@ -1,11 +1,11 @@
 import serial
 import serial.tools.list_ports
-from PyQt6.QtCore import QThread, pyqtSignal
+from PySide6.QtCore import QThread, Signal
 import time
 
 class SerialHandler(QThread):
-    data_received = pyqtSignal(float)
-    connection_status = pyqtSignal(bool, str)
+    data_received = Signal(float)
+    connection_status = Signal(bool, str)
     
     def __init__(self):
         super().__init__()
