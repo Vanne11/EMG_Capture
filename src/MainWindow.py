@@ -76,6 +76,16 @@ class MainWindow(QMainWindow):
         acquisition_layout.addWidget(self.start_btn)
         acquisition_layout.addWidget(self.stop_btn)
         
+        # Visualización
+        visualization_group = QGroupBox("Visualización")
+        visualization_layout = QVBoxLayout(visualization_group)
+        
+        self.show_raw_check = QCheckBox("Mostrar señal cruda")
+        self.show_raw_check.setChecked(False)  # Desactivado por defecto
+        self.show_raw_check.toggled.connect(self.toggle_raw_plot)
+        
+        visualization_layout.addWidget(self.show_raw_check)
+        
         # Filtros
         filters_group = QGroupBox("Filtros")
         filters_layout = QVBoxLayout(filters_group)
@@ -150,6 +160,7 @@ class MainWindow(QMainWindow):
         # Agregar grupos al panel
         layout.addWidget(serial_group)
         layout.addWidget(acquisition_group)
+        layout.addWidget(visualization_group)
         layout.addWidget(filters_group)
         layout.addWidget(recording_group)
         layout.addWidget(websocket_group)
@@ -170,6 +181,7 @@ class MainWindow(QMainWindow):
         self.raw_plot.setLabel('left', 'Amplitud', 'ADC')
         self.raw_plot.setLabel('bottom', 'Tiempo', 'muestras')
         self.raw_curve = self.raw_plot.plot(pen='b', name='Raw')
+        self.raw_plot.setVisible(False)  # Oculto por defecto
         
         # Gráfico de señal filtrada
         self.filtered_plot = pg.PlotWidget(title="Señal Filtrada")
@@ -182,8 +194,11 @@ class MainWindow(QMainWindow):
         
         return panel
     
+    def toggle_raw_plot(self, checked):
+        self.raw_plot.setVisible(checked)
+    
     def update_plots(self):
-        if len(self.plot_data_raw) > 0:
+        if len(self.plot_data_raw) > 0 and self.show_raw_check.isChecked():
             self.raw_curve.setData(self.plot_data_raw)
         if len(self.plot_data_filtered) > 0:
             self.filtered_curve.setData(self.plot_data_filtered)
