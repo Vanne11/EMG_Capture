@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EMG Monitor - Tiempo Real</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -180,6 +180,43 @@
             margin-bottom: 20px;
         }
 
+        .measurement-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 3px;
+            pointer-events: all;
+            z-index: 10;
+            cursor: grab;
+        }
+
+        .measurement-line:active {
+            cursor: grabbing;
+        }
+
+        .measurement-line::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: currentColor;
+        }
+
+        .measurement-label {
+            position: absolute;
+            left: 10px;
+            top: -12px;
+            background: currentColor;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            pointer-events: none;
+            user-select: none;
+        }
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -240,16 +277,16 @@
             .header h1 {
                 font-size: 1.8em;
             }
-            
+
             .status-bar {
                 justify-content: center;
             }
-            
+
             .chart-header {
                 flex-direction: column;
                 align-items: flex-start;
             }
-            
+
             .chart-wrapper {
                 height: 300px;
             }
@@ -299,21 +336,54 @@
                 <h3 class="chart-title">📈 Señal EMG en Tiempo Real</h3>
                 <div class="chart-controls">
                     <select class="select-control" id="timeWindow" onchange="updateTimeWindow()">
-                        <option value="30">30 segundos</option>
-                        <option value="60" selected>1 minuto</option>
+                        <option value="10">10 segundos</option>
+                        <option value="30" selected>30 segundos</option>
+                        <option value="60">1 minuto</option>
                         <option value="120">2 minutos</option>
-                        <option value="300">5 minutos</option>
                     </select>
                     <select class="select-control" id="updateRate" onchange="updateRefreshRate()">
+                        <option value="200" selected>0.2 seg</option>
                         <option value="500">0.5 seg</option>
-                        <option value="1000" selected>1 seg</option>
+                        <option value="1000">1 seg</option>
                         <option value="2000">2 seg</option>
-                        <option value="5000">5 seg</option>
                     </select>
                 </div>
             </div>
             <div class="chart-wrapper">
                 <canvas id="emgChart"></canvas>
+            </div>
+
+            <!-- Controles de líneas de medición -->
+            <div class="measurement-controls" id="measurementControls" style="margin-top: 10px;">
+                <h4 style="color: #333; margin-bottom: 10px;">📏 Líneas de Medición</h4>
+                <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                    <div class="measurement-control">
+                        <label style="color: #FF0000; font-weight: bold;">Línea 1:</label>
+                        <input type="number" id="line1Input" value="100" step="10"
+                               style="width: 80px; margin-left: 5px; padding: 5px;">
+                        <span style="color: #666; margin-left: 5px;">µV</span>
+                    </div>
+                    <div class="measurement-control">
+                        <label style="color: #00AA00; font-weight: bold;">Línea 2:</label>
+                        <input type="number" id="line2Input" value="500" step="10"
+                               style="width: 80px; margin-left: 5px; padding: 5px;">
+                        <span style="color: #666; margin-left: 5px;">µV</span>
+                    </div>
+                    <div class="measurement-control">
+                        <label style="color: #0066FF; font-weight: bold;">Línea 3:</label>
+                        <input type="number" id="line3Input" value="1000" step="10"
+                               style="width: 80px; margin-left: 5px; padding: 5px;">
+                        <span style="color: #666; margin-left: 5px;">µV</span>
+                    </div>
+                    <button class="btn" onclick="toggleMeasurementLines()" id="toggleLinesBtn"
+                            style="background: #667eea; color: white; margin-left: 10px;">
+                        🔧 Ocultar Líneas
+                    </button>
+                    <button class="btn" onclick="calculateLineDifferences()"
+                            style="background: #28a745; color: white; margin-left: 5px;">
+                        📊 Calcular Diferencias
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -352,27 +422,280 @@
         let isMonitoring = false;
         let updateInterval;
         let emgData = [];
-        let timeWindow = 60; // segundos
-        let updateRate = 1000; // milisegundos
+        let timeWindow = 30; // segundos - Ventana más corta para tiempo real
+        let updateRate = 200; // milisegundos - Sincronizado con Python (200ms)
         let totalSamples = 0;
         let totalBatches = 0;
+        let lastProcessedBatch = 0; // Para evitar procesar el mismo batch múltiples veces
+
+        // Variables para líneas de medición
+        let measurementLines = [
+            { id: 'line1', value: 100, color: '#FF0000', label: 'Línea 1' },
+            { id: 'line2', value: 500, color: '#00AA00', label: 'Línea 2' },
+            { id: 'line3', value: 1000, color: '#0066FF', label: 'Línea 3' }
+        ];
+
+        // Variables para arrastrar líneas
+        let isDragging = false;
+        let dragLineId = null;
+        let dragStartY = 0;
+
+        // Funciones para líneas de medición (definidas antes de su uso)
+        function createMeasurementLines() {
+            console.log('Creando líneas de medición...');
+            const chartWrapper = document.querySelector('.chart-wrapper');
+            console.log('Chart wrapper encontrado:', chartWrapper);
+
+            if (!chartWrapper) {
+                console.error('No se encontró .chart-wrapper');
+                return;
+            }
+
+            measurementLines.forEach(line => {
+                // Crear elemento de línea
+                const lineElement = document.createElement('div');
+                lineElement.className = 'measurement-line';
+                lineElement.id = `${line.id}Element`;
+                lineElement.style.color = line.color;
+                lineElement.style.zIndex = '10';
+                lineElement.style.position = 'absolute';
+
+                // Crear label
+                const labelElement = document.createElement('div');
+                labelElement.className = 'measurement-label';
+                labelElement.textContent = `${line.value.toFixed(1)} µV`;
+                lineElement.appendChild(labelElement);
+
+                // Agregar eventos de arrastre
+                lineElement.addEventListener('mousedown', function(e) {
+                    isDragging = true;
+                    dragLineId = line.id;
+                    dragStartY = e.clientY;
+                    lineElement.style.cursor = 'grabbing';
+                    e.preventDefault();
+                });
+
+                chartWrapper.appendChild(lineElement);
+                console.log(`Línea ${line.id} creada y agregada`);
+            });
+
+            // Eventos globales para arrastrar
+            document.addEventListener('mousemove', function(e) {
+                if (isDragging && dragLineId) {
+                    handleLineDrag(e);
+                }
+            });
+
+            document.addEventListener('mouseup', function(e) {
+                if (isDragging) {
+                    isDragging = false;
+                    const lineElement = document.getElementById(`${dragLineId}Element`);
+                    if (lineElement) {
+                        lineElement.style.cursor = 'grab';
+                    }
+                    dragLineId = null;
+                }
+            });
+
+            // Actualizar posiciones iniciales
+            setTimeout(() => {
+                updateMeasurementLinesPosition();
+            }, 50);
+        }
+
+        function handleLineDrag(e) {
+            if (!chart || !dragLineId) return;
+
+            const yScale = chart.scales.y;
+            const chartArea = chart.chartArea;
+
+            if (!yScale || !chartArea) return;
+
+            // Obtener posición relativa del mouse en el área del gráfico
+            const rect = chart.canvas.getBoundingClientRect();
+            const mouseY = e.clientY - rect.top;
+
+            // Convertir posición del mouse a valor µV
+            const newValue = yScale.getValueForPixel(mouseY);
+
+            // Limitar a rango razonable
+            const clampedValue = Math.max(-500, Math.min(3000, newValue));
+
+            // Actualizar la línea
+            const line = measurementLines.find(l => l.id === dragLineId);
+            if (line) {
+                line.value = clampedValue;
+
+                // Actualizar input correspondiente
+                const input = document.getElementById(`${dragLineId}Input`);
+                if (input) {
+                    input.value = Math.round(clampedValue);
+                }
+
+                // Actualizar label
+                const lineElement = document.getElementById(`${dragLineId}Element`);
+                if (lineElement) {
+                    const label = lineElement.querySelector('.measurement-label');
+                    if (label) {
+                        label.textContent = `${clampedValue.toFixed(1)} µV`;
+                    }
+
+                    // Actualizar posición
+                    const yPosition = yScale.getPixelForValue(clampedValue);
+                    lineElement.style.top = `${yPosition}px`;
+                }
+            }
+        }
+
+        function updateMeasurementLinesPosition() {
+            console.log('Actualizando posiciones de líneas...');
+            if (!chart) {
+                console.log('Chart no disponible');
+                return;
+            }
+
+            const chartArea = chart.chartArea;
+            const yScale = chart.scales.y;
+
+            console.log('ChartArea:', chartArea);
+            console.log('Y Scale:', yScale);
+
+            if (!chartArea || !yScale) {
+                console.log('ChartArea o YScale no disponibles');
+                return;
+            }
+
+            measurementLines.forEach(line => {
+                const lineElement = document.getElementById(`${line.id}Element`);
+                if (lineElement) {
+                    // Calcular posición Y basada en el valor y la escala del gráfico
+                    const yPosition = yScale.getPixelForValue(line.value);
+
+                    console.log(`Línea ${line.id}: valor=${line.value}, yPos=${yPosition}`);
+
+                    // Posicionar la línea
+                    lineElement.style.top = `${yPosition}px`;
+                    lineElement.style.left = `${chartArea.left}px`;
+                    lineElement.style.width = `${chartArea.width}px`;
+                    lineElement.style.display = measurementLinesVisible ? 'block' : 'none';
+
+                    console.log(`Línea ${line.id} posicionada en:`, {
+                        top: yPosition + 'px',
+                        left: chartArea.left + 'px',
+                        width: chartArea.width + 'px'
+                    });
+                } else {
+                    console.log(`Elemento ${line.id}Element no encontrado`);
+                }
+            });
+        }
+
+        function addMeasurementControls() {
+            // Agregar eventos a los inputs de las líneas
+            measurementLines.forEach((line, index) => {
+                const input = document.getElementById(`${line.id}Input`);
+                if (input) {
+                    input.addEventListener('change', function() {
+                        updateMeasurementLine(line.id, parseFloat(this.value));
+                    });
+                    input.addEventListener('input', function() {
+                        updateMeasurementLine(line.id, parseFloat(this.value));
+                    });
+                }
+            });
+        }
+
+        function updateMeasurementLine(lineId, newValue) {
+            // Actualizar el valor en el array
+            const line = measurementLines.find(l => l.id === lineId);
+            if (line) {
+                line.value = newValue;
+
+                // Actualizar el label
+                const lineElement = document.getElementById(`${lineId}Element`);
+                if (lineElement) {
+                    const label = lineElement.querySelector('.measurement-label');
+                    if (label) {
+                        label.textContent = `${newValue.toFixed(1)} µV`;
+                    }
+                }
+
+                // Actualizar posición
+                updateMeasurementLinesPosition();
+            }
+        }
+
+        let measurementLinesVisible = true;
+        function toggleMeasurementLines() {
+            measurementLinesVisible = !measurementLinesVisible;
+            const btn = document.getElementById('toggleLinesBtn');
+
+            measurementLines.forEach(line => {
+                const lineElement = document.getElementById(`${line.id}Element`);
+                if (lineElement) {
+                    lineElement.style.display = measurementLinesVisible ? 'block' : 'none';
+                }
+            });
+
+            if (measurementLinesVisible) {
+                btn.textContent = '🔧 Ocultar Líneas';
+                addLogEntry('Líneas de medición mostradas');
+            } else {
+                btn.textContent = '🔧 Mostrar Líneas';
+                addLogEntry('Líneas de medición ocultadas');
+            }
+        }
+
+        function calculateLineDifferences() {
+            // Calcular diferencias entre líneas
+            const line1 = measurementLines[0].value;
+            const line2 = measurementLines[1].value;
+            const line3 = measurementLines[2].value;
+
+            const diff12 = Math.abs(line2 - line1);
+            const diff23 = Math.abs(line3 - line2);
+            const diff13 = Math.abs(line3 - line1);
+
+            addLogEntry(`Diferencias - L1-L2: ${diff12.toFixed(1)}µV, L2-L3: ${diff23.toFixed(1)}µV, L1-L3: ${diff13.toFixed(1)}µV`);
+        }
 
         // Inicializar la aplicación
         document.addEventListener('DOMContentLoaded', function() {
-            initializeChart();
+            // Verificar que Chart.js esté cargado
+            if (typeof Chart === 'undefined') {
+                setTimeout(() => {
+                    if (typeof Chart !== 'undefined') {
+                        initializeChart();
+                    } else {
+                        addLogEntry('Error: Chart.js no se pudo cargar', 'error');
+                    }
+                }, 1000);
+            } else {
+                initializeChart();
+            }
+
             updateClock();
             setInterval(updateClock, 1000);
+
+            // Listener para redimensionar ventana
+            window.addEventListener('resize', function() {
+                setTimeout(() => {
+                    updateMeasurementLinesPosition();
+                }, 100);
+            });
+
             addLogEntry('Sistema inicializado correctamente');
         });
 
         // Inicializar el gráfico
         function initializeChart() {
+            console.log('Inicializando Chart.js...', typeof Chart);
+
             const ctx = document.getElementById('emgChart').getContext('2d');
-            
+
             chart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: [],
                     datasets: [{
                         label: 'EMG (µV)',
                         data: [],
@@ -380,7 +703,7 @@
                         backgroundColor: 'rgba(102, 126, 234, 0.1)',
                         borderWidth: 2,
                         fill: true,
-                        tension: 0.4,
+                        tension: 0.1,
                         pointRadius: 0,
                         pointHoverRadius: 4
                     }]
@@ -388,6 +711,10 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    parsing: {
+                        xAxisKey: 'x',
+                        yAxisKey: 'y'
+                    },
                     scales: {
                         x: {
                             type: 'linear',
@@ -398,16 +725,21 @@
                             },
                             grid: {
                                 color: 'rgba(0, 0, 0, 0.1)'
-                            }
+                            },
+                            min: 0,
+                            max: 10  // Escala inicial para que las líneas aparezcan
                         },
                         y: {
+                            type: 'linear',
                             title: {
                                 display: true,
                                 text: 'Amplitud (µV)'
                             },
                             grid: {
                                 color: 'rgba(0, 0, 0, 0.1)'
-                            }
+                            },
+                            min: -50,
+                            max: 2000  // Escala inicial para que las líneas aparezcan
                         }
                     },
                     plugins: {
@@ -420,7 +752,7 @@
                             intersect: false,
                             callbacks: {
                                 title: function(context) {
-                                    return `Tiempo: ${context[0].label}s`;
+                                    return `Tiempo: ${context[0].parsed.x.toFixed(2)}s`;
                                 },
                                 label: function(context) {
                                     return `EMG: ${context.parsed.y.toFixed(1)} µV`;
@@ -432,11 +764,17 @@
                         intersect: false,
                         mode: 'index'
                     },
-                    animation: {
-                        duration: 0
-                    }
+                    animation: false
                 }
             });
+
+            // Esperar a que el gráfico se renderice completamente antes de crear las líneas
+            setTimeout(() => {
+                createMeasurementLines();
+                addMeasurementControls();
+                addLogEntry('Gráfico inicializado con líneas de medición arrastrables');
+                addLogEntry('💡 Puedes arrastrar las líneas de colores con el mouse para medir');
+            }, 100);
         }
 
         // Iniciar monitoreo
@@ -445,7 +783,13 @@
             document.getElementById('startBtn').disabled = true;
             document.getElementById('stopBtn').disabled = false;
             updateConnectionStatus(true);
-            
+
+            // Resetear datos
+            emgData = [];
+            totalSamples = 0;
+            totalBatches = 0;
+            lastProcessedBatch = 0;
+
             updateInterval = setInterval(fetchData, updateRate);
             addLogEntry('Monitoreo iniciado');
         }
@@ -456,7 +800,7 @@
             document.getElementById('startBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
             updateConnectionStatus(false);
-            
+
             if (updateInterval) {
                 clearInterval(updateInterval);
             }
@@ -466,19 +810,20 @@
         // Obtener datos del servidor
         async function fetchData() {
             try {
-                const response = await fetch('get_data.php?latest=true');
-                
+                // Obtener solo datos más recientes para mejor rendimiento
+                const response = await fetch('get_data.php?latest=true&limit=10');
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const result = await response.json();
-                
-                if (result.status === 'success' && result.data.length > 0) {
+
+                if (result.status === 'success' && result.data && result.data.length > 0) {
                     processNewData(result.data);
-                    updateStats(result);
+                    updateStats();
                 }
-                
+
             } catch (error) {
                 console.error('Error fetching data:', error);
                 addLogEntry(`Error: ${error.message}`, 'error');
@@ -488,76 +833,113 @@
 
         // Procesar nuevos datos
         function processNewData(batches) {
-            const now = Date.now();
+            let newSamplesCount = 0;
+            let newBatchesCount = 0;
             const timeWindowMs = timeWindow * 1000;
-            
-            // Procesar cada lote de datos
-            batches.forEach(batch => {
+            const now = Date.now();
+
+            // Procesar solo batches nuevos
+            for (let i = lastProcessedBatch; i < batches.length; i++) {
+                const batch = batches[i];
+                newBatchesCount++;
+
                 if (batch.samples && Array.isArray(batch.samples)) {
                     batch.samples.forEach(sample => {
+                        // Usar time_ms del sample como tiempo relativo en segundos
+                        const timeInSeconds = sample.time_ms / 1000;
+
                         const dataPoint = {
-                            time: sample.time_ms / 1000, // Convertir a segundos
-                            value: sample.filtered,
-                            timestamp: now
+                            x: timeInSeconds,
+                            y: sample.filtered,
+                            timestamp: now // Para filtrado por ventana de tiempo
                         };
-                        
+
                         emgData.push(dataPoint);
-                        totalSamples++;
+                        newSamplesCount++;
                     });
                 }
-            });
-            
-            // Mantener solo datos dentro de la ventana de tiempo
+            }
+
+            // Actualizar índice del último batch procesado
+            lastProcessedBatch = batches.length;
+
+            // Filtrar datos antiguos por ventana de tiempo del navegador
             const cutoffTime = now - timeWindowMs;
             emgData = emgData.filter(point => point.timestamp > cutoffTime);
-            
-            // Actualizar gráfico
-            updateChart();
-            
+
             // Actualizar contadores
-            totalBatches += batches.length;
+            totalSamples += newSamplesCount;
+            totalBatches += newBatchesCount;
+
             document.getElementById('sampleCount').textContent = totalSamples;
             document.getElementById('batchCount').textContent = totalBatches;
+
+            // Actualizar gráfico
+            if (emgData.length > 0) {
+                updateChart();
+
+                // Log menos frecuente para evitar saturación
+                if (newSamplesCount > 0 && totalSamples % 50 === 0) {
+                    addLogEntry(`${totalSamples} muestras procesadas (${newSamplesCount} nuevas)`);
+                }
+            }
         }
 
         // Actualizar gráfico
         function updateChart() {
             if (!chart || emgData.length === 0) return;
-            
-            // Preparar datos para el gráfico
-            const chartData = emgData.map(point => ({
-                x: point.time,
-                y: point.value
-            }));
-            
-            // Ordenar por tiempo
-            chartData.sort((a, b) => a.x - b.x);
-            
+
+            // Limitar datos mostrados para mejor rendimiento
+            const maxPoints = 1000;
+            let displayData = emgData;
+
+            if (displayData.length > maxPoints) {
+                // Tomar solo los últimos maxPoints para el gráfico
+                displayData = displayData.slice(-maxPoints);
+            }
+
+            // Ordenar datos por tiempo
+            const sortedData = [...displayData].sort((a, b) => a.x - b.x);
+
             // Actualizar datos del gráfico
-            chart.data.datasets[0].data = chartData;
-            
-            // Configurar escala X para mostrar ventana de tiempo relativa
-            if (chartData.length > 0) {
-                const maxTime = Math.max(...chartData.map(d => d.x));
-                const minTime = Math.max(0, maxTime - timeWindow);
-                
-                chart.options.scales.x.min = minTime;
+            chart.data.datasets[0].data = sortedData;
+
+            // Configurar escala X automática basada en los datos actuales
+            if (sortedData.length > 0) {
+                const times = sortedData.map(d => d.x);
+                const minTime = Math.min(...times);
+                const maxTime = Math.max(...times);
+
+                // Mostrar ventana deslizante de timeWindow segundos
+                const windowStart = Math.max(minTime, maxTime - timeWindow);
+
+                chart.options.scales.x.min = windowStart;
                 chart.options.scales.x.max = maxTime;
             }
-            
+
             chart.update('none'); // Sin animación para mejor rendimiento
+
+            // Actualizar posiciones de las líneas de medición después de que el gráfico se actualice
+            setTimeout(() => {
+                updateMeasurementLinesPosition();
+            }, 10);
         }
 
         // Actualizar estadísticas
-        function updateStats(result) {
-            if (emgData.length === 0) return;
-            
-            const values = emgData.map(d => d.value);
+        function updateStats() {
+            if (emgData.length === 0) {
+                ['avgValue', 'maxValue', 'minValue', 'rmsValue'].forEach(id => {
+                    document.getElementById(id).textContent = '0.0';
+                });
+                return;
+            }
+
+            const values = emgData.map(d => d.y);
             const avg = values.reduce((a, b) => a + b, 0) / values.length;
             const max = Math.max(...values);
             const min = Math.min(...values);
             const rms = Math.sqrt(values.reduce((a, b) => a + b*b, 0) / values.length);
-            
+
             document.getElementById('avgValue').textContent = avg.toFixed(1);
             document.getElementById('maxValue').textContent = max.toFixed(1);
             document.getElementById('minValue').textContent = min.toFixed(1);
@@ -567,19 +949,19 @@
         // Actualizar ventana de tiempo
         function updateTimeWindow() {
             timeWindow = parseInt(document.getElementById('timeWindow').value);
-            addLogEntry(`Ventana de tiempo cambiada a ${timeWindow} segundos`);
+            addLogEntry(`Ventana de tiempo: ${timeWindow} segundos (tiempo real)`);
         }
 
         // Actualizar tasa de refresco
         function updateRefreshRate() {
             updateRate = parseInt(document.getElementById('updateRate').value);
-            
+
             if (isMonitoring) {
                 clearInterval(updateInterval);
                 updateInterval = setInterval(fetchData, updateRate);
             }
-            
-            addLogEntry(`Tasa de actualización cambiada a ${updateRate/1000} segundos`);
+
+            addLogEntry(`Tasa de actualización: ${updateRate}ms (sincronizada con Python)`);
         }
 
         // Limpiar datos del servidor
@@ -587,30 +969,28 @@
             if (!confirm('¿Estás seguro de que quieres borrar todos los datos del servidor?')) {
                 return;
             }
-            
+
             try {
                 const response = await fetch('clear.php', { method: 'POST' });
                 const result = await response.json();
-                
+
                 if (result.status === 'success') {
                     emgData = [];
                     totalSamples = 0;
                     totalBatches = 0;
-                    
+                    lastProcessedBatch = 0;
+
                     updateChart();
                     document.getElementById('sampleCount').textContent = '0';
                     document.getElementById('batchCount').textContent = '0';
-                    
-                    // Resetear estadísticas
-                    ['avgValue', 'maxValue', 'minValue', 'rmsValue'].forEach(id => {
-                        document.getElementById(id).textContent = '0.0';
-                    });
-                    
+
+                    updateStats();
+
                     addLogEntry(`Datos borrados: ${result.deleted_batches} lotes eliminados`);
                 } else {
                     throw new Error(result.message);
                 }
-                
+
             } catch (error) {
                 addLogEntry(`Error al borrar datos: ${error.message}`, 'error');
             }
@@ -622,12 +1002,12 @@
                 alert('No hay datos para exportar');
                 return;
             }
-            
+
             let csv = 'Tiempo (s),Valor (µV),Timestamp\n';
             emgData.forEach(point => {
-                csv += `${point.time},${point.value},${new Date(point.timestamp).toISOString()}\n`;
+                csv += `${point.x},${point.y},${new Date(point.timestamp).toISOString()}\n`;
             });
-            
+
             const blob = new Blob([csv], { type: 'text/csv' });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -637,7 +1017,7 @@
             a.click();
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
-            
+
             addLogEntry(`Datos exportados: ${emgData.length} muestras`);
         }
 
@@ -645,7 +1025,7 @@
         function updateConnectionStatus(connected) {
             const statusDot = document.getElementById('connectionStatus');
             const statusText = document.getElementById('connectionText');
-            
+
             if (connected) {
                 statusDot.className = 'status-dot active';
                 statusText.textContent = 'Conectado';
@@ -658,7 +1038,7 @@
         // Actualizar reloj
         function updateClock() {
             const now = new Date();
-            document.getElementById('currentTime').textContent = 
+            document.getElementById('currentTime').textContent =
                 now.toLocaleTimeString('es-ES');
         }
 
@@ -666,16 +1046,16 @@
         function addLogEntry(message, type = 'info') {
             const logContainer = document.getElementById('logContainer');
             const timestamp = new Date().toLocaleTimeString('es-ES');
-            
+
             const logEntry = document.createElement('div');
             logEntry.className = 'log-entry';
-            
+
             const color = type === 'error' ? '#ff6b6b' : '#00ff00';
             logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> <span style="color: ${color}">${message}</span>`;
-            
+
             logContainer.appendChild(logEntry);
             logContainer.scrollTop = logContainer.scrollHeight;
-            
+
             // Mantener solo las últimas 100 entradas
             while (logContainer.children.length > 100) {
                 logContainer.removeChild(logContainer.firstChild);
