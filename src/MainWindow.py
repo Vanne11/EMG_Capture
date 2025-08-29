@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QSplitter, QFrame, QProgressBar)
 from PySide6.QtCore import Qt, QTimer
 import pyqtgraph as pg
+import time
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -11,10 +12,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("EMG Real-Time Monitor")
         self.setGeometry(100, 100, 1200, 800)
         
-        # Variables para gráficos
+        # Variables para gráficos con tiempo
+        self.plot_times = []  # Tiempos en milisegundos desde inicio
         self.plot_data_raw = []
         self.plot_data_filtered = []
         self.max_points = 1000
+        self.start_time = None  # Se inicializa cuando empiece la adquisición
         
         # Timer para actualización de gráficos
         self.plot_timer = QTimer()
@@ -207,14 +210,14 @@ class MainWindow(QMainWindow):
         # Gráfico de señal cruda (valores RAW del ADS1115)
         self.raw_plot = pg.PlotWidget(title="Señal Cruda (RAW)")
         self.raw_plot.setLabel('left', 'Valor RAW', 'ADC')
-        self.raw_plot.setLabel('bottom', 'Tiempo', 'muestras')
+        self.raw_plot.setLabel('bottom', 'Tiempo', 'ms')
         self.raw_curve = self.raw_plot.plot(pen='b', name='Raw')
         self.raw_plot.setVisible(False)  # Oculto por defecto
         
         # Gráfico de potencial muscular (en µV)
         self.filtered_plot = pg.PlotWidget(title="Potencial Muscular EMG")
         self.filtered_plot.setLabel('left', 'Potencial', 'µV')
-        self.filtered_plot.setLabel('bottom', 'Tiempo', 'muestras')
+        self.filtered_plot.setLabel('bottom', 'Tiempo', 'ms')
         self.filtered_curve = self.filtered_plot.plot(pen='r', name='EMG µV')
         
         layout.addWidget(self.raw_plot)
@@ -222,23 +225,38 @@ class MainWindow(QMainWindow):
         
         return panel
     
+    def reset_time_reference(self):
+        """Reinicia el tiempo de referencia cuando empiece la adquisición"""
+        self.start_time = time.time() * 1000  # Tiempo en milisegundos
+        self.plot_times.clear()
+        self.plot_data_raw.clear()
+        self.plot_data_filtered.clear()
+    
     def toggle_raw_plot(self, checked):
         self.raw_plot.setVisible(checked)
     
     def update_plots(self):
-        if len(self.plot_data_raw) > 0 and self.show_raw_check.isChecked():
-            self.raw_curve.setData(self.plot_data_raw)
-        if len(self.plot_data_filtered) > 0:
-            self.filtered_curve.setData(self.plot_data_filtered)
+        if len(self.plot_times) > 0:
+            if self.show_raw_check.isChecked() and len(self.plot_data_raw) > 0:
+                self.raw_curve.setData(self.plot_times, self.plot_data_raw)
+            if len(self.plot_data_filtered) > 0:
+                self.filtered_curve.setData(self.plot_times, self.plot_data_filtered)
     
     def add_data_point(self, raw_value, muscle_potential_uv):
+        # Calcular tiempo transcurrido en milisegundos
+        if self.start_time is None:
+            self.reset_time_reference()
+        
+        current_time_ms = (time.time() * 1000) - self.start_time
+        
+        self.plot_times.append(current_time_ms)
         self.plot_data_raw.append(raw_value)
         self.plot_data_filtered.append(muscle_potential_uv)
         
         # Mantener solo los últimos max_points
-        if len(self.plot_data_raw) > self.max_points:
+        if len(self.plot_times) > self.max_points:
+            self.plot_times.pop(0)
             self.plot_data_raw.pop(0)
-        if len(self.plot_data_filtered) > self.max_points:
             self.plot_data_filtered.pop(0)
     
     def update_calibration_progress(self, progress):

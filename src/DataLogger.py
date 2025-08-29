@@ -1,5 +1,6 @@
 import csv
 import os
+import time
 from datetime import datetime
 from PySide6.QtCore import QObject, Signal
 
@@ -14,6 +15,7 @@ class DataLogger(QObject):
         self.file_handle = None
         self.is_logging = False
         self.sample_count = 0
+        self.session_start_time = None  # Tiempo de inicio de la sesión en ms
         
         # Crear directorio si no existe
         if not os.path.exists(self.base_directory):
@@ -37,16 +39,18 @@ class DataLogger(QObject):
             self.file_handle = open(self.current_file, 'w', newline='')
             self.csv_writer = csv.writer(self.file_handle)
             
-            # Escribir encabezados
+            # Escribir encabezados actualizados
             self.csv_writer.writerow([
-                'timestamp',
+                'timestamp_iso',           # Timestamp absoluto ISO
+                'time_ms',                # Tiempo relativo en milisegundos desde inicio
                 'sample_number', 
-                'raw_value',
-                'filtered_value'
+                'raw_value_mv',           # Valor crudo en mV
+                'filtered_value_uv'       # Valor filtrado en µV
             ])
             
             self.is_logging = True
             self.sample_count = 0
+            self.session_start_time = time.time() * 1000  # Tiempo de inicio en ms
             self.log_status.emit(f"Iniciando grabación: {filename}")
             return True
             
@@ -54,19 +58,22 @@ class DataLogger(QObject):
             self.log_status.emit(f"Error al iniciar grabación: {str(e)}")
             return False
     
-    def log_sample(self, raw_value, filtered_value):
+    def log_sample(self, raw_value_mv, filtered_value_uv):
         if not self.is_logging or not self.csv_writer:
             return
             
         try:
-            timestamp = datetime.now().isoformat()
+            current_time = time.time() * 1000
+            timestamp_iso = datetime.now().isoformat()
+            time_ms = current_time - self.session_start_time
             self.sample_count += 1
             
             self.csv_writer.writerow([
-                timestamp,
+                timestamp_iso,
+                f"{time_ms:.1f}",  # Tiempo relativo con 1 decimal
                 self.sample_count,
-                raw_value,
-                filtered_value
+                f"{raw_value_mv:.3f}",      # mV con 3 decimales
+                f"{filtered_value_uv:.1f}"  # µV con 1 decimal
             ])
             
             # Flush cada 100 muestras para asegurar escritura
@@ -90,6 +97,7 @@ class DataLogger(QObject):
             self.current_file = None
             self.csv_writer = None
             self.file_handle = None
+            self.session_start_time = None
             
         except Exception as e:
             self.log_status.emit(f"Error al finalizar grabación: {str(e)}")

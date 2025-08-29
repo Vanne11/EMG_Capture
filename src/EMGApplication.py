@@ -92,6 +92,9 @@ class EMGApplication(QObject):
     
     def start_acquisition(self):
         if self.serial_handler.is_connected:
+            # Reiniciar referencia de tiempo cuando empiece la adquisición
+            self.main_window.reset_time_reference()
+            
             self.serial_handler.start_reading()
             self.is_acquiring = True
             self.main_window.start_btn.setEnabled(False)
@@ -176,7 +179,7 @@ class EMGApplication(QObject):
         # Actualizar gráficos
         self.main_window.add_data_point(raw_value, muscle_potential_uv)
         
-        # Guardar datos si se está grabando (guardar ambos valores)
+        # Guardar datos si se está grabando con valores reales
         if self.is_recording:
             # Convertir raw_value a mV para el log
             voltage_mv = raw_value * self.signal_processor.ads_resolution
