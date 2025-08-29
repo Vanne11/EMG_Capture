@@ -19,6 +19,16 @@ class MainWindow(QMainWindow):
         self.max_points = 1000
         self.start_time = None  # Se inicializa cuando empiece la adquisición
         
+        # Estado de calibración para ajuste de escala
+        self.is_calibrated = False
+        
+        # Ventana de tiempo configurable (en milisegundos)
+        self.time_window_ms = 10000  # Por defecto 10 segundos
+        
+        # Líneas de medición
+        self.measurement_lines = []
+        self.measurement_labels = []
+        
         # Timer para actualización de gráficos
         self.plot_timer = QTimer()
         self.plot_timer.timeout.connect(self.update_plots)
@@ -49,8 +59,19 @@ class MainWindow(QMainWindow):
     def create_control_panel(self):
         panel = QFrame()
         panel.setFrameStyle(QFrame.StyledPanel)
-        panel.setMaximumWidth(350)
-        layout = QVBoxLayout(panel)
+        panel.setFixedWidth(350)  # Ancho fijo para evitar estiramientos
+        
+        # Crear un scroll area para todo el panel
+        from PySide6.QtWidgets import QScrollArea
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Widget contenedor para el scroll
+        scroll_widget = QWidget()
+        layout = QVBoxLayout(scroll_widget)
+        layout.setSpacing(10)  # Espaciado consistente
         
         # Conexión Serial
         serial_group = QGroupBox("Conexión Serial")
@@ -114,7 +135,19 @@ class MainWindow(QMainWindow):
         self.show_raw_check.setChecked(False)  # Desactivado por defecto
         self.show_raw_check.toggled.connect(self.toggle_raw_plot)
         
+        # Selector de ventana de tiempo
+        time_window_layout = QHBoxLayout()
+        time_window_layout.addWidget(QLabel("Ventana:"))
+        
+        self.time_window_combo = QComboBox()
+        self.time_window_combo.addItems(["5 seg", "10 seg", "15 seg", "20 seg", "30 seg"])
+        self.time_window_combo.setCurrentText("10 seg")  # Por defecto 10 segundos
+        self.time_window_combo.currentTextChanged.connect(self.update_time_window)
+        
+        time_window_layout.addWidget(self.time_window_combo)
+        
         visualization_layout.addWidget(self.show_raw_check)
+        visualization_layout.addLayout(time_window_layout)
         
         # Filtros
         filters_group = QGroupBox("Filtros")
@@ -187,7 +220,7 @@ class MainWindow(QMainWindow):
         self.log_text.setMaximumHeight(150)
         log_layout.addWidget(self.log_text)
         
-        # Agregar grupos al panel
+        # Agregar grupos al panel con espaciado consistente
         layout.addWidget(serial_group)
         layout.addWidget(acquisition_group)
         layout.addWidget(calibration_group)
@@ -197,6 +230,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(websocket_group)
         layout.addWidget(log_group)
         layout.addStretch()
+        
+        # Configurar el scroll area
+        scroll_area.setWidget(scroll_widget)
+        
+        # Layout principal del panel
+        main_panel_layout = QVBoxLayout(panel)
+        main_panel_layout.setContentsMargins(0, 0, 0, 0)
+        main_panel_layout.addWidget(scroll_area)
         
         return panel
     
@@ -220,10 +261,86 @@ class MainWindow(QMainWindow):
         self.filtered_plot.setLabel('bottom', 'Tiempo', 'ms')
         self.filtered_curve = self.filtered_plot.plot(pen='r', name='EMG µV')
         
+        # Configurar escalas fijas iniciales (antes de calibrar)
+        self.filtered_plot.setYRange(-50, 3000, padding=0)
+        
+        # Deshabilitar todas las interacciones del mouse
+        self.raw_plot.setMouseEnabled(x=False, y=False)
+        self.filtered_plot.setMouseEnabled(x=False, y=False)
+        
+        # Deshabilitar menú contextual
+        self.raw_plot.setMenuEnabled(False)
+        self.filtered_plot.setMenuEnabled(False)
+        
+        # Bloquear completamente las interacciones
+        self.raw_plot.getViewBox().setMouseEnabled(x=False, y=False)
+        self.filtered_plot.getViewBox().setMouseEnabled(x=False, y=False)
+        
+        # Deshabilitar autoRange
+        self.raw_plot.enableAutoRange(enable=False)
+        self.filtered_plot.enableAutoRange(enable=False)
+        
+        # Agregar líneas de medición
+        self.add_measurement_lines()
+        
         layout.addWidget(self.raw_plot)
         layout.addWidget(self.filtered_plot)
         
         return panel
+    
+    def add_measurement_lines(self):
+        """Agrega tres líneas horizontales de medición con diferentes colores"""
+        colors = ['#FF0000', '#00AA00', '#0066FF']  # Rojo, Verde oscuro, Azul oscuro
+        initial_positions = [100, 500, 1000]  # Posiciones iniciales en µV
+        
+        for i, (color, pos) in enumerate(zip(colors, initial_positions)):
+            # Crear línea infinita horizontal
+            line = pg.InfiniteLine(
+                pos=pos,
+                angle=0,  # Horizontal
+                pen=pg.mkPen(color=color, width=2),
+                movable=True,
+                bounds=None
+            )
+            
+            # Configurar la línea para que solo se mueva verticalmente
+            line.sigPositionChangeFinished.connect(lambda line=line, idx=i: self.update_measurement_label(line, idx))
+            
+            # Agregar al gráfico
+            self.filtered_plot.addItem(line)
+            self.measurement_lines.append(line)
+            
+            # Crear label para mostrar el valor con fondo sólido
+            label = pg.TextItem(
+                text=f'{pos:.1f} µV',
+                color='#000000',  # Texto negro para mejor contraste
+                anchor=(0, 0.5),
+                border=pg.mkPen(color=color, width=2),
+                fill=pg.mkBrush(255, 255, 255, 255)  # Fondo blanco sólido
+            )
+            
+            # Posicionar el label al lado derecho
+            self.filtered_plot.addItem(label)
+            self.measurement_labels.append(label)
+            
+            # Actualizar posición inicial del label
+            self.update_measurement_label(line, i)
+    
+    def update_measurement_label(self, line, index):
+        """Actualiza la posición y texto del label de medición"""
+        if index < len(self.measurement_labels):
+            # Obtener posición actual de la línea
+            pos_y = line.value()
+            
+            # Actualizar texto del label
+            self.measurement_labels[index].setText(f'{pos_y:.1f} µV')
+            
+            # Posicionar label más hacia la izquierda para que se vea completo
+            view_range = self.filtered_plot.getViewBox().viewRange()
+            x_range = view_range[0][1] - view_range[0][0]
+            x_right = view_range[0][1] - (x_range * 0.15)  # 15% desde el borde derecho (más espacio)
+            
+            self.measurement_labels[index].setPos(x_right, pos_y)
     
     def reset_time_reference(self):
         """Reinicia el tiempo de referencia cuando empiece la adquisición"""
@@ -235,12 +352,68 @@ class MainWindow(QMainWindow):
     def toggle_raw_plot(self, checked):
         self.raw_plot.setVisible(checked)
     
+    def update_time_window(self, text):
+        """Actualiza la ventana de tiempo según la selección"""
+        time_map = {
+            "5 seg": 5000,
+            "10 seg": 10000,
+            "15 seg": 15000,
+            "20 seg": 20000,
+            "30 seg": 30000
+        }
+        self.time_window_ms = time_map.get(text, 10000)
+        # Actualizar labels cuando cambie la ventana de tiempo
+        self.update_all_measurement_labels()
+    
+    def update_all_measurement_labels(self):
+        """Actualiza la posición de todos los labels de medición"""
+        for i, line in enumerate(self.measurement_lines):
+            self.update_measurement_label(line, i)
+    
     def update_plots(self):
         if len(self.plot_times) > 0:
+            # Actualizar gráfico crudo si está visible
             if self.show_raw_check.isChecked() and len(self.plot_data_raw) > 0:
                 self.raw_curve.setData(self.plot_times, self.plot_data_raw)
+                
+            # Actualizar gráfico filtrado con ventana deslizante
             if len(self.plot_data_filtered) > 0:
                 self.filtered_curve.setData(self.plot_times, self.plot_data_filtered)
+                
+                # Configurar ventana deslizante con tiempo configurable
+                current_time = self.plot_times[-1]
+                window_start = current_time - self.time_window_ms
+                self.filtered_plot.setXRange(window_start, current_time, padding=0)
+                
+                # Ajustar escala Y dinámicamente después de calibrar
+                if self.is_calibrated:
+                    # Solo ajustar si tenemos suficientes datos
+                    if len(self.plot_data_filtered) >= 100:
+                        # Obtener datos visibles en la ventana de tiempo actual
+                        visible_indices = [i for i, t in enumerate(self.plot_times) if t >= window_start]
+                        if visible_indices:
+                            visible_data = [self.plot_data_filtered[i] for i in visible_indices]
+                            
+                            if visible_data:
+                                min_val = min(visible_data)
+                                max_val = max(visible_data)
+                                
+                                # Asegurar un rango mínimo razonable
+                                range_val = max_val - min_val
+                                if range_val < 50:  # Rango mínimo de 50 µV
+                                    center = (min_val + max_val) / 2
+                                    min_val = center - 25
+                                    max_val = center + 25
+                                
+                                # Aplicar margen del 20%
+                                margin = range_val * 0.2
+                                y_min = min_val - margin
+                                y_max = max_val + margin
+                                
+                                self.filtered_plot.setYRange(y_min, y_max, padding=0)
+                
+                # Actualizar posiciones de los labels de medición
+                self.update_all_measurement_labels()
     
     def add_data_point(self, raw_value, muscle_potential_uv):
         # Calcular tiempo transcurrido en milisegundos
@@ -271,6 +444,8 @@ class MainWindow(QMainWindow):
             self.calibrate_btn.setText("Calibrando...")
             self.calibrate_btn.setEnabled(False)
             self.calibration_status.setText("Calibrando - manténgase en reposo")
+            # Mantener escala fija durante calibración
+            self.filtered_plot.setYRange(-50, 3000, padding=0)
         else:
             self.calibration_progress.setVisible(False)
             self.calibrate_btn.setText("Calibrar")
@@ -280,8 +455,12 @@ class MainWindow(QMainWindow):
         """Muestra el resultado de la calibración"""
         if success:
             self.calibration_status.setText(f"Calibrado (offset: {offset_mv:.1f}mV)")
+            self.is_calibrated = True  # Activar ajuste automático de escala
+            # Forzar actualización del layout después de calibrar
+            self.filtered_plot.getViewBox().updateViewRange()
         else:
             self.calibration_status.setText("Error en calibración")
+            self.is_calibrated = False
     
     def log_message(self, message):
         self.log_text.append(f"{message}")
