@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMG Monitor - Tiempo Real</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-bar {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            color: white;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 8px 15px;
+            border-radius: 20px;
+            backdrop-filter: blur(5px);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.active {
+            background: #4CAF50;
+        }
+
+        .status-dot.inactive {
+            background: #f44336;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn.primary {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+        }
+
+        .btn.danger {
+            background: linear-gradient(45deg, #f44336, #da190b);
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .chart-title {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .chart-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .select-control {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            background: white;
+            font-size: 14px;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .select-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .log-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .log-container {
+            background: #1a1a1a;
+            border-radius: 8px;
+            padding: 15px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #00ff00;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            line-height: 1.4;
+        }
+
+        .log-timestamp {
+            color: #888;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .status-bar {
+                justify-content: center;
+            }
+            
+            .chart-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .chart-wrapper {
+                height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔬 EMG Monitor - Tiempo Real</h1>
+        <p>Visualización de señales electromiográficas</p>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-item">
+            <div class="status-dot" id="connectionStatus"></div>
+            <span id="connectionText">Desconectado</span>
+        </div>
+        <div class="status-item">
+            <span>📊 Muestras: <strong id="sampleCount">0</strong></span>
+        </div>
+        <div class="status-item">
+            <span>📦 Lotes: <strong id="batchCount">0</strong></span>
+        </div>
+        <div class="status-item">
+            <span>🕒 <span id="currentTime"></span></span>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="btn primary" id="startBtn" onclick="startMonitoring()">
+            ▶️ Iniciar Monitoreo
+        </button>
+        <button class="btn danger" id="stopBtn" onclick="stopMonitoring()" disabled>
+            ⏸️ Pausar
+        </button>
+        <button class="btn" onclick="clearData()">
+            🗑️ Limpiar Datos
+        </button>
+        <button class="btn" onclick="exportData()">
+            💾 Exportar CSV
+        </button>
+    </div>
+
+    <div class="main-content">
+        <div class="chart-container">
+            <div class="chart-header">
+                <h3 class="chart-title">📈 Señal EMG en Tiempo Real</h3>
+                <div class="chart-controls">
+                    <select class="select-control" id="timeWindow" onchange="updateTimeWindow()">
+                        <option value="30">30 segundos</option>
+                        <option value="60" selected>1 minuto</option>
+                        <option value="120">2 minutos</option>
+                        <option value="300">5 minutos</option>
+                    </select>
+                    <select class="select-control" id="updateRate" onchange="updateRefreshRate()">
+                        <option value="500">0.5 seg</option>
+                        <option value="1000" selected>1 seg</option>
+                        <option value="2000">2 seg</option>
+                        <option value="5000">5 seg</option>
+                    </select>
+                </div>
+            </div>
+            <div class="chart-wrapper">
+                <canvas id="emgChart"></canvas>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="avgValue">0.0</div>
+                <div class="stat-label">Promedio (µV)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="maxValue">0.0</div>
+                <div class="stat-label">Máximo (µV)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="minValue">0.0</div>
+                <div class="stat-label">Mínimo (µV)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="rmsValue">0.0</div>
+                <div class="stat-label">RMS (µV)</div>
+            </div>
+        </div>
+
+        <div class="log-section">
+            <h3 style="margin-bottom: 15px; color: #333;">📝 Log del Sistema</h3>
+            <div class="log-container" id="logContainer">
+                <div class="log-entry">
+                    <span class="log-timestamp">[Inicio]</span> Sistema EMG iniciado - Esperando datos...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales
+        let chart;
+        let isMonitoring = false;
+        let updateInterval;
+        let emgData = [];
+        let timeWindow = 60; // segundos
+        let updateRate = 1000; // milisegundos
+        let totalSamples = 0;
+        let totalBatches = 0;
+
+        // Inicializar la aplicación
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeChart();
+            updateClock();
+            setInterval(updateClock, 1000);
+            addLogEntry('Sistema inicializado correctamente');
+        });
+
+        // Inicializar el gráfico
+        function initializeChart() {
+            const ctx = document.getElementById('emgChart').getContext('2d');
+            
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'EMG (µV)',
+                        data: [],
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            title: {
+                                display: true,
+                                text: 'Tiempo (segundos)'
+                            },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.1)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Amplitud (µV)'
+                            },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.1)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'nearest',
+                            intersect: false,
+                            callbacks: {
+                                title: function(context) {
+                                    return `Tiempo: ${context[0].label}s`;
+                                },
+                                label: function(context) {
+                                    return `EMG: ${context.parsed.y.toFixed(1)} µV`;
+                                }
+                            }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    animation: {
+                        duration: 0
+                    }
+                }
+            });
+        }
+
+        // Iniciar monitoreo
+        function startMonitoring() {
+            isMonitoring = true;
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            updateConnectionStatus(true);
+            
+            updateInterval = setInterval(fetchData, updateRate);
+            addLogEntry('Monitoreo iniciado');
+        }
+
+        // Detener monitoreo
+        function stopMonitoring() {
+            isMonitoring = false;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            updateConnectionStatus(false);
+            
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+            addLogEntry('Monitoreo pausado');
+        }
+
+        // Obtener datos del servidor
+        async function fetchData() {
+            try {
+                const response = await fetch('get_data.php?latest=true');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.status === 'success' && result.data.length > 0) {
+                    processNewData(result.data);
+                    updateStats(result);
+                }
+                
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                addLogEntry(`Error: ${error.message}`, 'error');
+                updateConnectionStatus(false);
+            }
+        }
+
+        // Procesar nuevos datos
+        function processNewData(batches) {
+            const now = Date.now();
+            const timeWindowMs = timeWindow * 1000;
+            
+            // Procesar cada lote de datos
+            batches.forEach(batch => {
+                if (batch.samples && Array.isArray(batch.samples)) {
+                    batch.samples.forEach(sample => {
+                        const dataPoint = {
+                            time: sample.time_ms / 1000, // Convertir a segundos
+                            value: sample.filtered,
+                            timestamp: now
+                        };
+                        
+                        emgData.push(dataPoint);
+                        totalSamples++;
+                    });
+                }
+            });
+            
+            // Mantener solo datos dentro de la ventana de tiempo
+            const cutoffTime = now - timeWindowMs;
+            emgData = emgData.filter(point => point.timestamp > cutoffTime);
+            
+            // Actualizar gráfico
+            updateChart();
+            
+            // Actualizar contadores
+            totalBatches += batches.length;
+            document.getElementById('sampleCount').textContent = totalSamples;
+            document.getElementById('batchCount').textContent = totalBatches;
+        }
+
+        // Actualizar gráfico
+        function updateChart() {
+            if (!chart || emgData.length === 0) return;
+            
+            // Preparar datos para el gráfico
+            const chartData = emgData.map(point => ({
+                x: point.time,
+                y: point.value
+            }));
+            
+            // Ordenar por tiempo
+            chartData.sort((a, b) => a.x - b.x);
+            
+            // Actualizar datos del gráfico
+            chart.data.datasets[0].data = chartData;
+            
+            // Configurar escala X para mostrar ventana de tiempo relativa
+            if (chartData.length > 0) {
+                const maxTime = Math.max(...chartData.map(d => d.x));
+                const minTime = Math.max(0, maxTime - timeWindow);
+                
+                chart.options.scales.x.min = minTime;
+                chart.options.scales.x.max = maxTime;
+            }
+            
+            chart.update('none'); // Sin animación para mejor rendimiento
+        }
+
+        // Actualizar estadísticas
+        function updateStats(result) {
+            if (emgData.length === 0) return;
+            
+            const values = emgData.map(d => d.value);
+            const avg = values.reduce((a, b) => a + b, 0) / values.length;
+            const max = Math.max(...values);
+            const min = Math.min(...values);
+            const rms = Math.sqrt(values.reduce((a, b) => a + b*b, 0) / values.length);
+            
+            document.getElementById('avgValue').textContent = avg.toFixed(1);
+            document.getElementById('maxValue').textContent = max.toFixed(1);
+            document.getElementById('minValue').textContent = min.toFixed(1);
+            document.getElementById('rmsValue').textContent = rms.toFixed(1);
+        }
+
+        // Actualizar ventana de tiempo
+        function updateTimeWindow() {
+            timeWindow = parseInt(document.getElementById('timeWindow').value);
+            addLogEntry(`Ventana de tiempo cambiada a ${timeWindow} segundos`);
+        }
+
+        // Actualizar tasa de refresco
+        function updateRefreshRate() {
+            updateRate = parseInt(document.getElementById('updateRate').value);
+            
+            if (isMonitoring) {
+                clearInterval(updateInterval);
+                updateInterval = setInterval(fetchData, updateRate);
+            }
+            
+            addLogEntry(`Tasa de actualización cambiada a ${updateRate/1000} segundos`);
+        }
+
+        // Limpiar datos del servidor
+        async function clearData() {
+            if (!confirm('¿Estás seguro de que quieres borrar todos los datos del servidor?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('clear.php', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    emgData = [];
+                    totalSamples = 0;
+                    totalBatches = 0;
+                    
+                    updateChart();
+                    document.getElementById('sampleCount').textContent = '0';
+                    document.getElementById('batchCount').textContent = '0';
+                    
+                    // Resetear estadísticas
+                    ['avgValue', 'maxValue', 'minValue', 'rmsValue'].forEach(id => {
+                        document.getElementById(id).textContent = '0.0';
+                    });
+                    
+                    addLogEntry(`Datos borrados: ${result.deleted_batches} lotes eliminados`);
+                } else {
+                    throw new Error(result.message);
+                }
+                
+            } catch (error) {
+                addLogEntry(`Error al borrar datos: ${error.message}`, 'error');
+            }
+        }
+
+        // Exportar datos a CSV
+        function exportData() {
+            if (emgData.length === 0) {
+                alert('No hay datos para exportar');
+                return;
+            }
+            
+            let csv = 'Tiempo (s),Valor (µV),Timestamp\n';
+            emgData.forEach(point => {
+                csv += `${point.time},${point.value},${new Date(point.timestamp).toISOString()}\n`;
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `emg_data_${new Date().toISOString().slice(0,19)}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            addLogEntry(`Datos exportados: ${emgData.length} muestras`);
+        }
+
+        // Actualizar estado de conexión
+        function updateConnectionStatus(connected) {
+            const statusDot = document.getElementById('connectionStatus');
+            const statusText = document.getElementById('connectionText');
+            
+            if (connected) {
+                statusDot.className = 'status-dot active';
+                statusText.textContent = 'Conectado';
+            } else {
+                statusDot.className = 'status-dot inactive';
+                statusText.textContent = 'Desconectado';
+            }
+        }
+
+        // Actualizar reloj
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('currentTime').textContent = 
+                now.toLocaleTimeString('es-ES');
+        }
+
+        // Agregar entrada al log
+        function addLogEntry(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString('es-ES');
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            
+            const color = type === 'error' ? '#ff6b6b' : '#00ff00';
+            logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> <span style="color: ${color}">${message}</span>`;
+            
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // Mantener solo las últimas 100 entradas
+            while (logContainer.children.length > 100) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+    </script>
+</body>
+</html>

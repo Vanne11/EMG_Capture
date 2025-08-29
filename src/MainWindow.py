@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QPushButton, QComboBox, QLabel, QGroupBox, 
                                QCheckBox, QDoubleSpinBox, QSpinBox, QTextEdit,
-                               QSplitter, QFrame, QProgressBar)
+                               QSplitter, QFrame, QProgressBar, QScrollArea)
 from PySide6.QtCore import Qt, QTimer
 import pyqtgraph as pg
 import time
@@ -62,7 +62,6 @@ class MainWindow(QMainWindow):
         panel.setFixedWidth(350)  # Ancho fijo para evitar estiramientos
         
         # Crear un scroll area para todo el panel
-        from PySide6.QtWidgets import QScrollArea
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -212,6 +211,18 @@ class MainWindow(QMainWindow):
         websocket_layout.addWidget(self.websocket_status)
         websocket_layout.addWidget(self.clients_count)
         
+        # Transmisión Web
+        web_transmission_group = QGroupBox("Transmisión Web")
+        web_transmission_layout = QVBoxLayout(web_transmission_group)
+        
+        self.web_transmission_btn = QPushButton("Iniciar Transmisión Web")
+        self.web_transmission_status = QLabel("Transmisión detenida")
+        self.clear_server_btn = QPushButton("Limpiar Datos Servidor")
+        
+        web_transmission_layout.addWidget(self.web_transmission_btn)
+        web_transmission_layout.addWidget(self.web_transmission_status)
+        web_transmission_layout.addWidget(self.clear_server_btn)
+        
         # Log
         log_group = QGroupBox("Log")
         log_layout = QVBoxLayout(log_group)
@@ -228,6 +239,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(filters_group)
         layout.addWidget(recording_group)
         layout.addWidget(websocket_group)
+        layout.addWidget(web_transmission_group)
         layout.addWidget(log_group)
         layout.addStretch()
         

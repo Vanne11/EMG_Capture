@@ -5,6 +5,7 @@ from SerialHandler import SerialHandler
 from SignalProcessor import SignalProcessor
 from DataLogger import DataLogger
 from WebSocketServer import WebSocketServer
+from HTTPSender import HTTPSender
 from MainWindow import MainWindow
 
 class EMGApplication(QObject):
@@ -16,12 +17,14 @@ class EMGApplication(QObject):
         self.signal_processor = SignalProcessor()
         self.data_logger = DataLogger()
         self.websocket_server = WebSocketServer()
+        self.http_sender = HTTPSender()
         self.main_window = MainWindow()
         
         # Variables de estado
         self.is_acquiring = False
         self.is_recording = False
         self.is_websocket_running = False
+        self.is_web_transmitting = False
         
         # Timer para actualizar progreso de calibración
         self.calibration_timer = QTimer()
@@ -45,6 +48,10 @@ class EMGApplication(QObject):
         self.websocket_server.server_status.connect(self.update_websocket_status)
         self.websocket_server.client_connected.connect(self.update_client_count)
         
+        # Conexiones del HTTPSender
+        self.http_sender.transmission_status.connect(self.update_web_transmission_status)
+        self.http_sender.clear_status.connect(self.main_window.log_message)
+        
         # Conexiones de la interfaz
         self.main_window.refresh_ports_btn.clicked.connect(self.refresh_ports)
         self.main_window.connect_btn.clicked.connect(self.toggle_connection)
@@ -52,6 +59,10 @@ class EMGApplication(QObject):
         self.main_window.stop_btn.clicked.connect(self.stop_acquisition)
         self.main_window.record_btn.clicked.connect(self.toggle_recording)
         self.main_window.websocket_btn.clicked.connect(self.toggle_websocket)
+        
+        # Conexiones de transmisión web
+        self.main_window.web_transmission_btn.clicked.connect(self.toggle_web_transmission)
+        self.main_window.clear_server_btn.clicked.connect(self.clear_server_data)
         
         # Conexión del botón de calibración
         self.main_window.calibrate_btn.clicked.connect(self.start_calibration)
@@ -113,6 +124,10 @@ class EMGApplication(QObject):
             if self.is_recording:
                 self.toggle_recording()
             
+            # Detener transmisión web si está activa
+            if self.is_web_transmitting:
+                self.toggle_web_transmission()
+            
             # Detener calibración si está activa
             if self.signal_processor.is_calibrating:
                 self.stop_calibration()
@@ -172,6 +187,25 @@ class EMGApplication(QObject):
             self.websocket_server.stop_server()
             self.main_window.websocket_btn.setText("Iniciar Servidor")
     
+    def toggle_web_transmission(self):
+        if not self.is_web_transmitting:
+            if not self.is_acquiring:
+                self.main_window.log_message("Error: Debe iniciar la adquisición antes de transmitir")
+                return
+            if self.http_sender.start_transmission():
+                self.main_window.web_transmission_btn.setText("Detener Transmisión Web")
+        else:
+            if self.http_sender.stop_transmission():
+                self.main_window.web_transmission_btn.setText("Iniciar Transmisión Web")
+    
+    def clear_server_data(self):
+        self.http_sender.clear_server_data()
+    
+    def update_web_transmission_status(self, transmitting, message):
+        self.is_web_transmitting = transmitting
+        self.main_window.web_transmission_status.setText(message)
+        self.main_window.log_message(message)
+    
     def process_data(self, raw_value):
         # Procesar con conversión EMG y filtros
         muscle_potential_uv = self.signal_processor.add_sample(raw_value)
@@ -188,6 +222,11 @@ class EMGApplication(QObject):
         # Enviar por WebSocket si está activo
         if self.is_websocket_running:
             self.websocket_server.send_data(raw_value, muscle_potential_uv)
+        
+        # Enviar por HTTP si está activo
+        if self.is_web_transmitting:
+            voltage_mv = raw_value * self.signal_processor.ads_resolution
+            self.http_sender.add_sample(voltage_mv, muscle_potential_uv)
     
     def update_connection_status(self, connected, message):
         self.main_window.connection_status.setText(message)

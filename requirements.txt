@@ -14,6 +14,9 @@ pyqtgraph
 # WebSocket Server
 websockets
 
+# HTTP Requests
+requests
+
 # Optional: Data Analysis
 pandas
 matplotlib
