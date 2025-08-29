@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QPushButton, QComboBox, QLabel, QGroupBox, 
                                QCheckBox, QDoubleSpinBox, QSpinBox, QTextEdit,
-                               QSplitter, QFrame)
+                               QSplitter, QFrame, QProgressBar)
 from PySide6.QtCore import Qt, QTimer
 import pyqtgraph as pg
 
@@ -75,6 +75,33 @@ class MainWindow(QMainWindow):
         
         acquisition_layout.addWidget(self.start_btn)
         acquisition_layout.addWidget(self.stop_btn)
+        
+        # Calibración EMG
+        calibration_group = QGroupBox("Calibración EMG")
+        calibration_layout = QVBoxLayout(calibration_group)
+        
+        # Línea para duración de calibración y botón
+        calib_control_layout = QHBoxLayout()
+        
+        calib_control_layout.addWidget(QLabel("Duración:"))
+        self.calibration_duration = QSpinBox()
+        self.calibration_duration.setRange(1, 30)
+        self.calibration_duration.setValue(5)
+        self.calibration_duration.setSuffix(" seg")
+        calib_control_layout.addWidget(self.calibration_duration)
+        
+        self.calibrate_btn = QPushButton("Calibrar")
+        calib_control_layout.addWidget(self.calibrate_btn)
+        
+        calibration_layout.addLayout(calib_control_layout)
+        
+        # Progreso y estado de calibración
+        self.calibration_progress = QProgressBar()
+        self.calibration_progress.setVisible(False)
+        calibration_layout.addWidget(self.calibration_progress)
+        
+        self.calibration_status = QLabel("Sin calibrar")
+        calibration_layout.addWidget(self.calibration_status)
         
         # Visualización
         visualization_group = QGroupBox("Visualización")
@@ -160,6 +187,7 @@ class MainWindow(QMainWindow):
         # Agregar grupos al panel
         layout.addWidget(serial_group)
         layout.addWidget(acquisition_group)
+        layout.addWidget(calibration_group)
         layout.addWidget(visualization_group)
         layout.addWidget(filters_group)
         layout.addWidget(recording_group)
@@ -176,18 +204,18 @@ class MainWindow(QMainWindow):
         # Configurar pyqtgraph
         pg.setConfigOptions(antialias=True)
         
-        # Gráfico de señal cruda
-        self.raw_plot = pg.PlotWidget(title="Señal Cruda")
-        self.raw_plot.setLabel('left', 'Amplitud', 'ADC')
+        # Gráfico de señal cruda (valores RAW del ADS1115)
+        self.raw_plot = pg.PlotWidget(title="Señal Cruda (RAW)")
+        self.raw_plot.setLabel('left', 'Valor RAW', 'ADC')
         self.raw_plot.setLabel('bottom', 'Tiempo', 'muestras')
         self.raw_curve = self.raw_plot.plot(pen='b', name='Raw')
         self.raw_plot.setVisible(False)  # Oculto por defecto
         
-        # Gráfico de señal filtrada
-        self.filtered_plot = pg.PlotWidget(title="Señal Filtrada")
-        self.filtered_plot.setLabel('left', 'Amplitud', 'ADC')
+        # Gráfico de potencial muscular (en µV)
+        self.filtered_plot = pg.PlotWidget(title="Potencial Muscular EMG")
+        self.filtered_plot.setLabel('left', 'Potencial', 'µV')
         self.filtered_plot.setLabel('bottom', 'Tiempo', 'muestras')
-        self.filtered_curve = self.filtered_plot.plot(pen='r', name='Filtered')
+        self.filtered_curve = self.filtered_plot.plot(pen='r', name='EMG µV')
         
         layout.addWidget(self.raw_plot)
         layout.addWidget(self.filtered_plot)
@@ -203,15 +231,39 @@ class MainWindow(QMainWindow):
         if len(self.plot_data_filtered) > 0:
             self.filtered_curve.setData(self.plot_data_filtered)
     
-    def add_data_point(self, raw_value, filtered_value):
+    def add_data_point(self, raw_value, muscle_potential_uv):
         self.plot_data_raw.append(raw_value)
-        self.plot_data_filtered.append(filtered_value)
+        self.plot_data_filtered.append(muscle_potential_uv)
         
         # Mantener solo los últimos max_points
         if len(self.plot_data_raw) > self.max_points:
             self.plot_data_raw.pop(0)
         if len(self.plot_data_filtered) > self.max_points:
             self.plot_data_filtered.pop(0)
+    
+    def update_calibration_progress(self, progress):
+        """Actualiza la barra de progreso de calibración (0.0 a 1.0)"""
+        self.calibration_progress.setValue(int(progress * 100))
+    
+    def set_calibration_state(self, calibrating):
+        """Cambia el estado visual de calibración"""
+        if calibrating:
+            self.calibration_progress.setVisible(True)
+            self.calibration_progress.setValue(0)
+            self.calibrate_btn.setText("Calibrando...")
+            self.calibrate_btn.setEnabled(False)
+            self.calibration_status.setText("Calibrando - manténgase en reposo")
+        else:
+            self.calibration_progress.setVisible(False)
+            self.calibrate_btn.setText("Calibrar")
+            self.calibrate_btn.setEnabled(True)
+    
+    def set_calibration_result(self, success, offset_mv=0.0):
+        """Muestra el resultado de la calibración"""
+        if success:
+            self.calibration_status.setText(f"Calibrado (offset: {offset_mv:.1f}mV)")
+        else:
+            self.calibration_status.setText("Error en calibración")
     
     def log_message(self, message):
         self.log_text.append(f"{message}")

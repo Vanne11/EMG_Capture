@@ -1,6 +1,6 @@
 import sys
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QTimer
 from SerialHandler import SerialHandler
 from SignalProcessor import SignalProcessor
 from DataLogger import DataLogger
@@ -22,6 +22,10 @@ class EMGApplication(QObject):
         self.is_acquiring = False
         self.is_recording = False
         self.is_websocket_running = False
+        
+        # Timer para actualizar progreso de calibración
+        self.calibration_timer = QTimer()
+        self.calibration_timer.timeout.connect(self.update_calibration_progress)
         
         # Conectar señales
         self.setup_connections()
@@ -48,6 +52,9 @@ class EMGApplication(QObject):
         self.main_window.stop_btn.clicked.connect(self.stop_acquisition)
         self.main_window.record_btn.clicked.connect(self.toggle_recording)
         self.main_window.websocket_btn.clicked.connect(self.toggle_websocket)
+        
+        # Conexión del botón de calibración
+        self.main_window.calibrate_btn.clicked.connect(self.start_calibration)
         
         # Conexiones de filtros
         self.main_window.lowpass_check.toggled.connect(lambda: self.update_filter('lowpass'))
@@ -102,6 +109,45 @@ class EMGApplication(QObject):
             # Detener grabación si está activa
             if self.is_recording:
                 self.toggle_recording()
+            
+            # Detener calibración si está activa
+            if self.signal_processor.is_calibrating:
+                self.stop_calibration()
+    
+    def start_calibration(self):
+        """Inicia el proceso de calibración EMG"""
+        if not self.is_acquiring:
+            self.main_window.log_message("Error: Debe iniciar la adquisición antes de calibrar")
+            return
+            
+        duration = self.main_window.calibration_duration.value()
+        
+        if self.signal_processor.start_calibration(duration):
+            self.main_window.set_calibration_state(True)
+            self.calibration_timer.start(100)  # Actualizar cada 100ms
+            self.main_window.log_message(f"Iniciando calibración de {duration} segundos - manténgase en reposo")
+    
+    def stop_calibration(self):
+        """Detiene la calibración en curso"""
+        if self.signal_processor.is_calibrating:
+            success, offset_mv = self.signal_processor.finish_calibration()
+            self.main_window.set_calibration_state(False)
+            self.main_window.set_calibration_result(success, offset_mv)
+            self.calibration_timer.stop()
+            
+            if success:
+                self.main_window.log_message(f"Calibración completada. Offset: {offset_mv:.1f}mV")
+            else:
+                self.main_window.log_message("Error en la calibración")
+    
+    def update_calibration_progress(self):
+        """Actualiza el progreso de calibración"""
+        if self.signal_processor.is_calibrating:
+            progress = self.signal_processor.get_calibration_progress()
+            self.main_window.update_calibration_progress(progress)
+            
+            if progress >= 1.0:
+                self.stop_calibration()
     
     def toggle_recording(self):
         if not self.is_recording:
@@ -124,19 +170,21 @@ class EMGApplication(QObject):
             self.main_window.websocket_btn.setText("Iniciar Servidor")
     
     def process_data(self, raw_value):
-        # Procesar con filtros
-        filtered_value = self.signal_processor.add_sample(raw_value)
+        # Procesar con conversión EMG y filtros
+        muscle_potential_uv = self.signal_processor.add_sample(raw_value)
         
         # Actualizar gráficos
-        self.main_window.add_data_point(raw_value, filtered_value)
+        self.main_window.add_data_point(raw_value, muscle_potential_uv)
         
-        # Guardar datos si se está grabando
+        # Guardar datos si se está grabando (guardar ambos valores)
         if self.is_recording:
-            self.data_logger.log_sample(raw_value, filtered_value)
+            # Convertir raw_value a mV para el log
+            voltage_mv = raw_value * self.signal_processor.ads_resolution
+            self.data_logger.log_sample(voltage_mv, muscle_potential_uv)
         
         # Enviar por WebSocket si está activo
         if self.is_websocket_running:
-            self.websocket_server.send_data(raw_value, filtered_value)
+            self.websocket_server.send_data(raw_value, muscle_potential_uv)
     
     def update_connection_status(self, connected, message):
         self.main_window.connection_status.setText(message)

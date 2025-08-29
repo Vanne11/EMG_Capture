@@ -25,9 +25,69 @@ class SignalProcessor:
         # Buffer para promedio móvil
         self.moving_avg_buffer = deque(maxlen=self.moving_avg_window)
         
-    def add_sample(self, value):
-        self.data_buffer.append(value)
-        return self.apply_filters(value)
+        # Parámetros de conversión EMG
+        self.ads_resolution = 0.1875  # mV por LSB (ADS1115 con ganancia 2/3)
+        self.system_gain = 1200.0     # Ganancia estimada del sistema
+        
+        # Calibración
+        self.is_calibrating = False
+        self.calibration_samples = []
+        self.calibration_target_count = 500  # Por defecto 5 segundos
+        self.baseline_offset_mv = 0.0  # Offset en mV
+        self.is_calibrated = False
+        
+    def add_sample(self, raw_value):
+        """Procesa una muestra RAW del ADS1115 y devuelve el potencial muscular en µV"""
+        
+        # Convertir RAW a mV (salida del sistema de amplificación)
+        voltage_mv = raw_value * self.ads_resolution
+        
+        # Si estamos calibrando, almacenar muestra
+        if self.is_calibrating:
+            self.calibration_samples.append(voltage_mv)
+            if len(self.calibration_samples) >= self.calibration_target_count:
+                self.finish_calibration()
+            return 0.0  # Durante calibración devolver 0 µV
+        
+        # Convertir a potencial muscular original en µV
+        if self.is_calibrated:
+            muscle_potential_uv = ((voltage_mv - self.baseline_offset_mv) / self.system_gain) * 1000
+        else:
+            # Sin calibrar, asumir offset de 666mV (valor típico observado)
+            muscle_potential_uv = ((voltage_mv - 666.0) / self.system_gain) * 1000
+        
+        # Agregar al buffer para filtros
+        self.data_buffer.append(muscle_potential_uv)
+        
+        # Aplicar filtros al potencial muscular
+        return self.apply_filters(muscle_potential_uv)
+    
+    def start_calibration(self, duration_seconds=5):
+        """Inicia el proceso de calibración"""
+        self.calibration_target_count = int(duration_seconds * self.sample_rate)
+        self.calibration_samples = []
+        self.is_calibrating = True
+        self.is_calibrated = False
+        return True
+    
+    def finish_calibration(self):
+        """Finaliza la calibración y calcula el offset baseline"""
+        if len(self.calibration_samples) > 0:
+            self.baseline_offset_mv = np.mean(self.calibration_samples)
+            self.is_calibrated = True
+            self.is_calibrating = False
+            return True, self.baseline_offset_mv
+        return False, 0.0
+    
+    def get_calibration_progress(self):
+        """Retorna el progreso de calibración (0.0 a 1.0)"""
+        if not self.is_calibrating:
+            return 0.0
+        return len(self.calibration_samples) / self.calibration_target_count
+    
+    def set_system_gain(self, gain):
+        """Permite ajustar la ganancia del sistema si se conoce"""
+        self.system_gain = float(gain)
     
     def apply_filters(self, value):
         filtered_value = value
