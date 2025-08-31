@@ -2,6 +2,7 @@ import serial
 import serial.tools.list_ports
 from PySide6.QtCore import QThread, Signal
 import time
+import re
 
 class SerialHandler(QThread):
     data_received = Signal(float)
@@ -56,4 +57,14 @@ class SerialHandler(QThread):
     
     @staticmethod
     def get_available_ports():
-        return [port.device for port in serial.tools.list_ports.comports()]
+        # Lista todos los dispositivos disponibles
+        ports_all = [port.device for port in serial.tools.list_ports.comports()]
+        
+        # Filtra: excluir /dev/ttyS[n] (ej: /dev/ttyS0, /dev/ttyS1, etc.)
+        ports_filter = [
+            port for port in ports_all
+            if not re.match(r"^/dev/ttyS\d+$", port)
+        ]
+        
+        return ports_filter
+        

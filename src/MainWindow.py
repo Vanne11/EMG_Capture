@@ -16,14 +16,16 @@ class MainWindow(QMainWindow):
         self.plot_times = []  # Tiempos en milisegundos desde inicio
         self.plot_data_raw = []
         self.plot_data_filtered = []
-        self.max_points = 1000
+        
+        # Configuración de ventana de tiempo dinámica
+        self.time_window_ms = 10000  # Por defecto 10 segundos
+        self.sample_rate = 100  # Hz - frecuencia de muestreo estimada
+        self.max_points = self._calculate_max_points()  # Calcular dinámicamente
+        
         self.start_time = None  # Se inicializa cuando empiece la adquisición
         
         # Estado de calibración para ajuste de escala
         self.is_calibrated = False
-        
-        # Ventana de tiempo configurable (en milisegundos)
-        self.time_window_ms = 10000  # Por defecto 10 segundos
         
         # Líneas de medición
         self.measurement_lines = []
@@ -35,6 +37,30 @@ class MainWindow(QMainWindow):
         self.plot_timer.start(50)  # Actualizar cada 50ms
         
         self.setup_ui()
+    
+    def _calculate_max_points(self):
+        """Calcula la cantidad máxima de puntos basándose en la ventana de tiempo"""
+        # Agregar 50% extra para tener buffer adicional
+        points_needed = int((self.time_window_ms / 1000) * self.sample_rate * 1.5)
+        # Mínimo 500 puntos, máximo 5000 para rendimiento
+        return max(500, min(5000, points_needed))
+    
+    def _update_max_points(self):
+        """Actualiza max_points y ajusta los buffers de datos"""
+        old_max_points = self.max_points
+        self.max_points = self._calculate_max_points()
+        
+        # Si aumentó la capacidad, no necesitamos hacer nada (los datos se acumularán)
+        # Si disminuyó, recortar los datos más antiguos
+        if self.max_points < old_max_points:
+            if len(self.plot_times) > self.max_points:
+                excess = len(self.plot_times) - self.max_points
+                self.plot_times = self.plot_times[excess:]
+                self.plot_data_raw = self.plot_data_raw[excess:]
+                self.plot_data_filtered = self.plot_data_filtered[excess:]
+        
+        # Log del cambio para debug
+        print(f"Max points actualizado: {old_max_points} -> {self.max_points} (ventana: {self.time_window_ms/1000}s)")
         
     def setup_ui(self):
         central_widget = QWidget()
@@ -139,7 +165,7 @@ class MainWindow(QMainWindow):
         time_window_layout.addWidget(QLabel("Ventana:"))
         
         self.time_window_combo = QComboBox()
-        self.time_window_combo.addItems(["5 seg", "10 seg", "15 seg", "20 seg", "30 seg"])
+        self.time_window_combo.addItems(["5 seg", "10 seg", "15 seg", "20 seg", "30 seg", "60 seg", "120 seg"])
         self.time_window_combo.setCurrentText("10 seg")  # Por defecto 10 segundos
         self.time_window_combo.currentTextChanged.connect(self.update_time_window)
         
@@ -371,11 +397,22 @@ class MainWindow(QMainWindow):
             "10 seg": 10000,
             "15 seg": 15000,
             "20 seg": 20000,
-            "30 seg": 30000
+            "30 seg": 30000,
+            "60 seg": 60000,
+            "120 seg": 120000
         }
+        
+        old_window = self.time_window_ms
         self.time_window_ms = time_map.get(text, 10000)
+        
+        # Actualizar max_points basándose en la nueva ventana
+        self._update_max_points()
+        
         # Actualizar labels cuando cambie la ventana de tiempo
         self.update_all_measurement_labels()
+        
+        # Log del cambio
+        self.log_message(f"Ventana de tiempo cambiada: {old_window/1000}s -> {self.time_window_ms/1000}s (buffer: {self.max_points} puntos)")
     
     def update_all_measurement_labels(self):
         """Actualiza la posición de todos los labels de medición"""
@@ -438,7 +475,7 @@ class MainWindow(QMainWindow):
         self.plot_data_raw.append(raw_value)
         self.plot_data_filtered.append(muscle_potential_uv)
         
-        # Mantener solo los últimos max_points
+        # Mantener solo los últimos max_points (ahora dinámico)
         if len(self.plot_times) > self.max_points:
             self.plot_times.pop(0)
             self.plot_data_raw.pop(0)
