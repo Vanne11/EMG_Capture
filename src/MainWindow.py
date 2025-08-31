@@ -5,12 +5,16 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PySide6.QtCore import Qt, QTimer
 import pyqtgraph as pg
 import time
+from ThemeManager import ThemeManager
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("EMG Real-Time Monitor")
         self.setGeometry(100, 100, 1200, 800)
+        
+        # Inicializar gestor de temas
+        self.theme_manager = ThemeManager()
         
         # Variables para gráficos con tiempo
         self.plot_times = []  # Tiempos en milisegundos desde inicio
@@ -81,6 +85,9 @@ class MainWindow(QMainWindow):
         
         # Configurar proporción del splitter
         splitter.setSizes([300, 900])
+        
+        # Aplicar tema a la interfaz
+        self.setStyleSheet(self.theme_manager.get_widget_stylesheet())
     
     def create_control_panel(self):
         panel = QFrame()
@@ -286,6 +293,13 @@ class MainWindow(QMainWindow):
         self.filtered_plot.setLabel('bottom', 'Tiempo', 'ms')
         self.filtered_curve = self.filtered_plot.plot(pen='r', name='EMG µV')
         
+        # Aplicar tema a los gráficos
+        curve_colors = self.theme_manager.apply_theme_to_plots(self.raw_plot, self.filtered_plot)
+        
+        # Actualizar colores de las curvas
+        self.raw_curve.setPen(curve_colors['raw_curve_color'])
+        self.filtered_curve.setPen(curve_colors['filtered_curve_color'])
+        
         # Configurar escalas fijas iniciales (antes de calibrar)
         self.filtered_plot.setYRange(-50, 3000, padding=0)
         
@@ -335,13 +349,13 @@ class MainWindow(QMainWindow):
             self.filtered_plot.addItem(line)
             self.measurement_lines.append(line)
             
-            # Crear label para mostrar el valor con fondo sólido
+            # Crear label para mostrar el valor con colores del tema
             label = pg.TextItem(
                 text=f'{pos:.1f} µV',
-                color='#000000',  # Texto negro para mejor contraste
+                color=self.theme_manager.get_color('label_text'),  # Color de texto del tema
                 anchor=(0, 0.5),
-                border=pg.mkPen(color=color, width=2),
-                fill=pg.mkBrush(255, 255, 255, 255)  # Fondo blanco sólido
+                border=None,  # Sin borde
+                fill=None     # Fondo transparente
             )
             
             # Posicionar el label al lado derecho

@@ -6,6 +6,7 @@ from SignalProcessor import SignalProcessor
 from DataLogger import DataLogger
 from HTTPSender import HTTPSender
 from MainWindow import MainWindow
+from ThemeManager import ThemeManager
 
 class EMGApplication(QObject):
     def __init__(self):
@@ -238,6 +239,11 @@ class EMGApplication(QObject):
 
 def main():
     app = QApplication(sys.argv)
+    
+    # Aplicar tema a la aplicación
+    theme_manager = ThemeManager()
+    theme_manager.apply_theme_to_application(app)
+    
     emg_app = EMGApplication()
     emg_app.run()
     sys.exit(app.exec())
