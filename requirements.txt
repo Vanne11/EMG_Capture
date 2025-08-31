@@ -11,9 +11,6 @@ scipy
 # Real-time Plotting
 pyqtgraph
 
-# WebSocket Server
-websockets
-
 # HTTP Requests
 requests
 

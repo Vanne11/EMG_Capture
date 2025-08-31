@@ -4,7 +4,6 @@ from PySide6.QtCore import QObject, Signal, QTimer
 from SerialHandler import SerialHandler
 from SignalProcessor import SignalProcessor
 from DataLogger import DataLogger
-from WebSocketServer import WebSocketServer
 from HTTPSender import HTTPSender
 from MainWindow import MainWindow
 
@@ -16,14 +15,12 @@ class EMGApplication(QObject):
         self.serial_handler = SerialHandler()
         self.signal_processor = SignalProcessor()
         self.data_logger = DataLogger()
-        self.websocket_server = WebSocketServer()
         self.http_sender = HTTPSender()
         self.main_window = MainWindow()
         
         # Variables de estado
         self.is_acquiring = False
         self.is_recording = False
-        self.is_websocket_running = False
         self.is_web_transmitting = False
         
         # Timer para actualizar progreso de calibración
@@ -44,10 +41,6 @@ class EMGApplication(QObject):
         # Conexiones del DataLogger
         self.data_logger.log_status.connect(self.main_window.log_message)
         
-        # Conexiones del WebSocketServer
-        self.websocket_server.server_status.connect(self.update_websocket_status)
-        self.websocket_server.client_connected.connect(self.update_client_count)
-        
         # Conexiones del HTTPSender
         self.http_sender.transmission_status.connect(self.update_web_transmission_status)
         self.http_sender.clear_status.connect(self.main_window.log_message)
@@ -58,7 +51,6 @@ class EMGApplication(QObject):
         self.main_window.start_btn.clicked.connect(self.start_acquisition)
         self.main_window.stop_btn.clicked.connect(self.stop_acquisition)
         self.main_window.record_btn.clicked.connect(self.toggle_recording)
-        self.main_window.websocket_btn.clicked.connect(self.toggle_websocket)
         
         # Conexiones de transmisión web
         self.main_window.web_transmission_btn.clicked.connect(self.toggle_web_transmission)
@@ -179,14 +171,6 @@ class EMGApplication(QObject):
             self.main_window.record_btn.setText("Iniciar Grabación")
             self.main_window.record_status.setText("Sin grabación")
     
-    def toggle_websocket(self):
-        if not self.is_websocket_running:
-            self.websocket_server.start_server()
-            self.main_window.websocket_btn.setText("Detener Servidor")
-        else:
-            self.websocket_server.stop_server()
-            self.main_window.websocket_btn.setText("Iniciar Servidor")
-    
     def toggle_web_transmission(self):
         if not self.is_web_transmitting:
             if not self.is_acquiring:
@@ -219,10 +203,6 @@ class EMGApplication(QObject):
             voltage_mv = raw_value * self.signal_processor.ads_resolution
             self.data_logger.log_sample(voltage_mv, muscle_potential_uv)
         
-        # Enviar por WebSocket si está activo
-        if self.is_websocket_running:
-            self.websocket_server.send_data(raw_value, muscle_potential_uv)
-        
         # Enviar por HTTP si está activo
         if self.is_web_transmitting:
             voltage_mv = raw_value * self.signal_processor.ads_resolution
@@ -231,14 +211,6 @@ class EMGApplication(QObject):
     def update_connection_status(self, connected, message):
         self.main_window.connection_status.setText(message)
         self.main_window.log_message(message)
-    
-    def update_websocket_status(self, running, message):
-        self.is_websocket_running = running
-        self.main_window.websocket_status.setText(message)
-        self.main_window.log_message(message)
-    
-    def update_client_count(self, count):
-        self.main_window.clients_count.setText(f"Clientes: {count}")
     
     def update_filter(self, filter_type):
         checkbox_map = {

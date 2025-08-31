@@ -225,18 +225,6 @@ class MainWindow(QMainWindow):
         recording_layout.addWidget(self.record_btn)
         recording_layout.addWidget(self.record_status)
         
-        # WebSocket
-        websocket_group = QGroupBox("WebSocket")
-        websocket_layout = QVBoxLayout(websocket_group)
-        
-        self.websocket_btn = QPushButton("Iniciar Servidor")
-        self.websocket_status = QLabel("Servidor detenido")
-        self.clients_count = QLabel("Clientes: 0")
-        
-        websocket_layout.addWidget(self.websocket_btn)
-        websocket_layout.addWidget(self.websocket_status)
-        websocket_layout.addWidget(self.clients_count)
-        
         # Transmisión Web
         web_transmission_group = QGroupBox("Transmisión Web")
         web_transmission_layout = QVBoxLayout(web_transmission_group)
@@ -264,7 +252,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(visualization_group)
         layout.addWidget(filters_group)
         layout.addWidget(recording_group)
-        layout.addWidget(websocket_group)
         layout.addWidget(web_transmission_group)
         layout.addWidget(log_group)
         layout.addStretch()
